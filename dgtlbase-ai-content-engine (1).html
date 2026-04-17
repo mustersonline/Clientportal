@@ -1,0 +1,1502 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DGTLbase AI Content Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&family=Geist:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          serif: ['Instrument Serif', 'serif'],
+          sans: ['Geist', 'system-ui', 'sans-serif'],
+          mono: ['JetBrains Mono', 'monospace'],
+        },
+        colors: {
+          ink: '#0a0a0a',
+          cream: '#f5f1ea',
+          paper: '#faf8f3',
+          accent: '#ff5b2e',
+          moss: '#3d4a2a',
+          sage: '#8b9474',
+        },
+      },
+    },
+  }
+</script>
+<style>
+  * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  body { font-family: 'Geist', sans-serif; background: #faf8f3; color: #0a0a0a; }
+  .serif { font-family: 'Instrument Serif', serif; font-weight: 400; letter-spacing: -0.02em; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* Noise texture */
+  .noise::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+    opacity: 0.04;
+    pointer-events: none;
+    mix-blend-mode: multiply;
+  }
+
+  /* Animations */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.15); }
+  }
+  @keyframes shimmer {
+    0% { background-position: -400px 0; }
+    100% { background-position: 400px 0; }
+  }
+  @keyframes spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @keyframes check-in {
+    from { transform: scale(0); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+
+  .fade-up { animation: fadeUp 0.5s ease-out forwards; }
+  .pulse-dot { animation: pulse-dot 1.5s infinite; }
+  .shimmer {
+    background: linear-gradient(90deg, #eadfd0 0%, #f5ece0 40%, #eadfd0 80%);
+    background-size: 800px 100%;
+    animation: shimmer 1.8s infinite linear;
+  }
+  .spin-slow { animation: spin-slow 2s linear infinite; }
+  .check-in { animation: check-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(10,10,10,0.15); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(10,10,10,0.3); }
+
+  /* Input styling */
+  input, select, textarea {
+    font-family: 'Geist', sans-serif;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: #ff5b2e;
+    box-shadow: 0 0 0 3px rgba(255, 91, 46, 0.12);
+  }
+
+  /* Button transitions */
+  button { transition: all 0.2s ease; }
+
+  /* Editable fields */
+  [contenteditable]:focus {
+    outline: none;
+    background: rgba(255, 91, 46, 0.04);
+    border-radius: 4px;
+  }
+  [contenteditable]:hover {
+    background: rgba(0,0,0,0.02);
+    border-radius: 4px;
+  }
+
+  /* Tab underline animation */
+  .tab-active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: #0a0a0a;
+  }
+
+  /* Toast */
+  .toast-in {
+    animation: fadeUp 0.3s ease-out forwards;
+  }
+
+  /* Dot pattern background */
+  .dots {
+    background-image: radial-gradient(circle, rgba(10,10,10,0.1) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    background: linear-gradient(135deg, #0a0a0a 0%, #ff5b2e 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- Toast container -->
+<div id="toast-container" class="fixed top-6 right-6 z-[100] flex flex-col gap-2"></div>
+
+<!-- App root -->
+<div id="app"></div>
+
+<script>
+// ============================================================
+// MOCK DATA
+// ============================================================
+const currentUser = {
+  name: 'Lisa van den Berg',
+  company: 'Koekjesfabriek De Lekkerste',
+  email: 'lisa@koekjesfabriek.nl',
+  avatar: 'LB',
+};
+
+let userCredits = 7;
+
+const markets = [
+  { value: 'NL', label: 'Nederland', flag: '🇳🇱' },
+  { value: 'BE', label: 'België', flag: '🇧🇪' },
+  { value: 'DE', label: 'Duitsland', flag: '🇩🇪' },
+  { value: 'UK', label: 'Verenigd Koninkrijk', flag: '🇬🇧' },
+  { value: 'US', label: 'Verenigde Staten', flag: '🇺🇸' },
+  { value: 'FR', label: 'Frankrijk', flag: '🇫🇷' },
+];
+
+const industries = [
+  'E-commerce', 'SaaS / Software', 'Finance', 'Healthcare',
+  'Real Estate', 'Travel', 'Food & Beverage', 'Fashion',
+  'B2B Services', 'Energy', 'Education', 'Marketing',
+];
+
+const mockJobs = [
+  {
+    id: 'job-1',
+    keyword: 'zonnepanelen kopen',
+    market: 'Nederland',
+    industry: 'Energy',
+    type: 'both',
+    wordCount: 1840,
+    status: 'completed',
+    date: '14 apr 2026',
+    credits: 3,
+  },
+  {
+    id: 'job-2',
+    keyword: 'beste CRM software MKB',
+    market: 'Nederland',
+    industry: 'SaaS / Software',
+    type: 'briefing',
+    wordCount: 0,
+    status: 'completed',
+    date: '12 apr 2026',
+    credits: 1,
+  },
+  {
+    id: 'job-3',
+    keyword: 'online marketing bureau Amsterdam',
+    market: 'Nederland',
+    industry: 'Marketing',
+    type: 'article',
+    wordCount: 1420,
+    status: 'completed',
+    date: '10 apr 2026',
+    credits: 2,
+  },
+  {
+    id: 'job-4',
+    keyword: 'personal trainer Rotterdam',
+    market: 'Nederland',
+    industry: 'Healthcare',
+    type: 'both',
+    wordCount: 1650,
+    status: 'completed',
+    date: '8 apr 2026',
+    credits: 3,
+  },
+  {
+    id: 'job-5',
+    keyword: 'wholesale fashion',
+    market: 'Verenigd Koninkrijk',
+    industry: 'Fashion',
+    type: 'briefing',
+    wordCount: 0,
+    status: 'completed',
+    date: '5 apr 2026',
+    credits: 1,
+  },
+];
+
+// Generate realistic mock content based on keyword
+function generateMockContent(keyword, market, industry) {
+  return {
+    briefing: {
+      searchIntent: {
+        primaryIntent: 'commercial',
+        intentExplanation: `Gebruikers die zoeken op "${keyword}" bevinden zich in de overwegingsfase. Ze vergelijken opties, zoeken naar expertise en bewijs voor hun keuze.`,
+        userGoal: 'De juiste aanbieder of oplossing vinden, bevestiging krijgen voor een aanstaande aankoopbeslissing.',
+      },
+      targetAudience: {
+        primaryPersona: `Besluitvormers binnen ${industry.toLowerCase()}, leeftijd 30-55, die een onderbouwde aankoopbeslissing willen maken op basis van kwaliteit, prijs en betrouwbaarheid.`,
+        painPoints: [
+          'Overweldigd door aanbod en tegenstrijdige informatie',
+          'Onzekerheid over kwaliteit en betrouwbaarheid van aanbieders',
+          'Behoefte aan transparantie over prijzen en voorwaarden',
+          'Twijfel over de juiste match voor hun specifieke situatie',
+        ],
+        searchTriggers: [
+          'Recente aanbeveling van collega of vriend',
+          'Tegenvallende ervaring met huidige aanbieder',
+          'Nieuw budget of projectruimte beschikbaar',
+          'Seizoensgebonden behoefte',
+        ],
+      },
+      contentStrategy: {
+        recommendedFormat: 'Lange, autoritatieve guide met vergelijkingselementen en duidelijke call-to-action',
+        estimatedWordCount: 1800,
+        contentAngle: `Positioneer als de definitieve bron over "${keyword}" — combineer diepgaande expertise met praktische beslissingshulp.`,
+        uniqueValueProposition: 'Datagedreven inzichten + 16 jaar praktijkervaring + transparante vergelijking',
+      },
+      contentStructure: {
+        metaTitle: `${keyword.charAt(0).toUpperCase() + keyword.slice(1)}: Complete Gids [${new Date().getFullYear()}]`,
+        metaDescription: `Alles wat je moet weten over ${keyword}. Vergelijk opties, ontdek prijzen en maak de juiste keuze. Expert advies op basis van 16 jaar ervaring.`,
+        h1: `${keyword.charAt(0).toUpperCase() + keyword.slice(1)}: De Ultieme Gids`,
+        sections: [
+          { heading: `Wat is ${keyword} precies?`, purpose: 'Context en definitie bieden', keyPoints: ['Definitie', 'Kernvoordelen', 'Wie heeft het nodig'], wordCount: 250 },
+          { heading: `Belangrijkste criteria bij ${keyword}`, purpose: 'Beslissingsframework geven', keyPoints: ['Kwaliteit indicatoren', 'Prijs vs waarde', 'Service & support'], wordCount: 400 },
+          { heading: 'Vergelijking van populaire opties', purpose: 'Concrete vergelijking bieden', keyPoints: ['Top 5 aanbieders', 'Prijsvergelijking', 'Specialismen'], wordCount: 500 },
+          { heading: 'Veelgemaakte fouten (en hoe te vermijden)', purpose: 'Vertrouwen opbouwen', keyPoints: ['Top 3 valkuilen', 'Red flags herkennen', 'Checklist'], wordCount: 350 },
+          { heading: 'Stappenplan: jouw keuze maken', purpose: 'Actiegerichte afsluiting', keyPoints: ['5-stappen proces', 'Beslissingsmatrix', 'Volgende stap'], wordCount: 300 },
+        ],
+      },
+      seoEntities: {
+        primaryKeyword: keyword,
+        relatedKeywords: [`${keyword} vergelijken`, `beste ${keyword}`, `${keyword} prijs`, `${keyword} kopen`, `${keyword} review`],
+        lsiKeywords: ['kwaliteit', 'betrouwbaar', 'aanbieders', 'vergelijking', 'prijs-kwaliteit', 'advies', 'expert', 'ervaring'],
+        entities: [industry, market, 'Google', 'EU', 'consumenten', 'MKB'],
+      },
+      competitiveInsights: {
+        contentGaps: [
+          'Weinig concurrenten bieden concrete prijsindicaties',
+          'Vergelijkingstabellen ontbreken bij top 10 resultaten',
+          'Geen enkele bron combineert theorie met case studies',
+        ],
+        differentiators: [
+          'Interactieve vergelijkingstool toevoegen',
+          'Echte klantervaringen met naam & foto',
+          'Downloadbare checklist als lead magnet',
+          '16 jaar DGTLbase data als unieke autoriteit',
+        ],
+      },
+    },
+    article: {
+      title: `${keyword.charAt(0).toUpperCase() + keyword.slice(1)}: De Ultieme Gids voor ${new Date().getFullYear()}`,
+      metaTitle: `${keyword.charAt(0).toUpperCase() + keyword.slice(1)}: Complete Gids [${new Date().getFullYear()}] | DGTLbase`,
+      metaDescription: `Alles wat je moet weten over ${keyword}. Vergelijk opties, ontdek prijzen en maak de juiste keuze. Expert advies.`,
+      introduction: `Een weloverwogen keuze maken rondom ${keyword} kan overweldigend voelen. Met zoveel aanbieders, verschillende prijsniveaus en tegenstrijdige adviezen online, is het moeilijk om te bepalen wat voor jouw situatie echt werkt. In deze complete gids delen we 16 jaar aan praktijkervaring en datagedreven inzichten om je te helpen de juiste beslissing te nemen — zonder marketing-ruis, gewoon concrete, onderbouwde adviezen.`,
+      sections: [
+        {
+          heading: `Wat is ${keyword} precies?`,
+          content: `Voordat we diep induiken in vergelijkingen en criteria, is het belangrijk om een helder beeld te hebben van wat ${keyword} inhoudt. Dit concept wordt vaak breed geïnterpreteerd, wat kan leiden tot mismatched verwachtingen tussen aanbieder en klant.\n\nIn de kern draait het om het vinden van een oplossing die zowel direct waarde levert als duurzaam meegroeit met jouw behoeften. Voor veel organisaties binnen ${industry.toLowerCase()} betekent dit een investering die zich doorgaans binnen 6 tot 12 maanden terugverdient — mits je de juiste keuze maakt.`,
+          wordCount: 165,
+        },
+        {
+          heading: `Belangrijkste criteria bij ${keyword}`,
+          content: `Niet alle aanbieders zijn gelijk. Om het kaf van het koren te scheiden, letten ervaren kopers op drie dimensies:\n\n**1. Kwaliteit en bewijs**\nVraag altijd om concrete cases uit jouw sector. Een goede aanbieder heeft specifieke, meetbare resultaten uit ${market} die ze kunnen delen — geen vage "we hebben veel klanten geholpen".\n\n**2. Transparantie in prijsstelling**\nVerborgen kosten zijn een rode vlag. Professionele aanbieders werken met heldere prijsmodellen, vaste tarieven waar mogelijk, en duidelijke voorwaarden over wat wel en niet is inbegrepen.\n\n**3. Service en support**\nDe periode ná aanschaf is minstens zo belangrijk als het verkoopproces. Check reviews specifiek over support-kwaliteit en responsetijden.`,
+          wordCount: 245,
+        },
+        {
+          heading: 'Vergelijking van populaire opties',
+          content: `De markt in ${market} kent grofweg drie segmenten: premium spelers met volledige service, mid-market aanbieders die balans bieden tussen kwaliteit en prijs, en budget-opties voor wie op basis zoekt.\n\nVoor de meeste bedrijven binnen ${industry.toLowerCase()} blijkt de mid-market het beste compromis. Je krijgt professionele service zonder de toeslagen die grote namen berekenen voor hun merk. Belangrijk is wel dat je hier goed vergelijkt — de kwaliteitsverschillen binnen dit segment zijn groot.\n\nUit onze eigen analyse van 200+ cases komt naar voren dat organisaties die meer dan drie aanbieders vergelijkt gemiddeld 23% beter uitkomen in zowel prijs als resultaat dan organisaties die de eerste beste kiezen.`,
+          wordCount: 215,
+        },
+        {
+          heading: 'Veelgemaakte fouten (en hoe ze te vermijden)',
+          content: `**Fout 1: Alleen op prijs selecteren**\nDe goedkoopste optie is zelden de beste investering. Bereken altijd total cost of ownership over 2-3 jaar.\n\n**Fout 2: Geen referenties checken**\nMaar liefst 68% van de kopers doet dit niet — terwijl één telefoontje met een bestaande klant meer inzicht geeft dan tien verkooppresentaties.\n\n**Fout 3: Contracten niet laten nalezen**\nVooral de exit-clausules en prijsverhogingen in jaar 2+ worden vaak over het hoofd gezien.`,
+          wordCount: 155,
+        },
+        {
+          heading: 'Stappenplan: jouw keuze maken',
+          content: `Volg dit vijfstappen proces voor een onderbouwde beslissing:\n\n1. **Definieer je eisen** — Schrijf in maximaal één A4 op wat succes eruit ziet.\n2. **Longlist van 5-7 aanbieders** — Gebruik onze checklist als basis.\n3. **Shortlist tot 3 opties** — Op basis van eerste gesprekken en referenties.\n4. **Diep vergelijken** — Op basis van de 3 criteria uit deze gids.\n5. **Beslissen en starten** — Met duidelijke KPI's voor het eerste half jaar.`,
+          wordCount: 125,
+        },
+      ],
+      conclusion: `Een goede keuze in ${keyword} hoeft niet ingewikkeld te zijn — mits je gestructureerd te werk gaat. De belangrijkste les na 16 jaar werken met bedrijven in ${market}: investeer tijd in de voorbereiding, vergelijk concreet, en laat je niet verleiden door marketing boven substance. De beste beslissing is een geïnformeerde beslissing.`,
+      callToAction: `Klaar om je keuze te maken? Download onze gratis vergelijkingschecklist of plan een vrijblijvend kennismakingsgesprek met een van onze experts.`,
+      totalWordCount: 1905,
+    },
+  };
+}
+
+// ============================================================
+// STATE MANAGEMENT
+// ============================================================
+const state = {
+  page: 'login', // login | dashboard | generator | progress | result | history | settings
+  currentJob: null,
+  currentResult: null,
+  currentTab: 'briefing',
+  selectedJobType: 'both', // briefing | article | both
+  editedArticle: null,
+  formData: { keyword: '', market: 'NL', industry: 'E-commerce', context: '' },
+};
+
+function setState(changes) {
+  Object.assign(state, changes);
+  render();
+}
+
+// ============================================================
+// TOAST
+// ============================================================
+function toast(message, icon = '✓') {
+  const el = document.createElement('div');
+  el.className = 'toast-in bg-ink text-cream px-5 py-3.5 rounded-lg shadow-xl flex items-center gap-3 min-w-[280px] border border-ink';
+  el.innerHTML = `
+    <div class="w-6 h-6 rounded-full bg-accent flex items-center justify-center text-white text-sm font-medium">${icon}</div>
+    <div class="text-sm font-medium">${message}</div>
+  `;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => {
+    el.style.transition = 'all 0.3s ease';
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(-8px)';
+    setTimeout(() => el.remove(), 300);
+  }, 2800);
+}
+
+// ============================================================
+// ICONS
+// ============================================================
+const icon = {
+  sparkles: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M18 15l.75 2.25L21 18l-2.25.75L18 21l-.75-2.25L15 18l2.25-.75L18 15z"/></svg>`,
+  home: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
+  zap: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+  history: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>`,
+  settings: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
+  logout: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`,
+  check: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
+  arrow: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>`,
+  download: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
+  save: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`,
+  refresh: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`,
+  eye: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  search: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+  plus: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+  coin: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+};
+
+// ============================================================
+// COMPONENTS
+// ============================================================
+
+function renderLogo(size = 'normal') {
+  const scale = size === 'large' ? 'text-3xl' : 'text-xl';
+  return `
+    <div class="flex items-center gap-2.5">
+      <div class="relative w-9 h-9 bg-ink rounded-lg flex items-center justify-center overflow-hidden noise">
+        <div class="absolute inset-0 bg-gradient-to-br from-accent via-ink to-ink opacity-90"></div>
+        <div class="relative serif text-cream text-xl italic">d</div>
+      </div>
+      <div>
+        <div class="${scale} serif italic leading-none">dgtlbase</div>
+        <div class="text-[9px] uppercase tracking-[0.2em] text-ink/60 font-medium mt-0.5">AI Content Engine</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderSidebar() {
+  const navItems = [
+    { key: 'dashboard', icon: icon.home, label: 'Dashboard' },
+    { key: 'generator', icon: icon.zap, label: 'Generator' },
+    { key: 'history', icon: icon.history, label: 'Geschiedenis' },
+    { key: 'settings', icon: icon.settings, label: 'Instellingen' },
+  ];
+
+  return `
+    <aside class="w-64 bg-ink text-cream flex flex-col h-screen sticky top-0">
+      <div class="p-6 border-b border-cream/10">
+        <div class="flex items-center gap-2.5">
+          <div class="relative w-9 h-9 bg-accent rounded-lg flex items-center justify-center noise">
+            <div class="serif text-cream text-xl italic">d</div>
+          </div>
+          <div>
+            <div class="text-xl serif italic leading-none text-cream">dgtlbase</div>
+            <div class="text-[9px] uppercase tracking-[0.2em] text-cream/50 font-medium mt-0.5">AI Content Engine</div>
+          </div>
+        </div>
+      </div>
+
+      <nav class="flex-1 p-3 space-y-1">
+        ${navItems.map(item => `
+          <button
+            onclick="navigate('${item.key}')"
+            class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              state.page === item.key || (item.key === 'generator' && ['generator','progress','result'].includes(state.page))
+                ? 'bg-cream text-ink'
+                : 'text-cream/70 hover:text-cream hover:bg-cream/5'
+            }">
+            ${item.icon}
+            <span>${item.label}</span>
+          </button>
+        `).join('')}
+      </nav>
+
+      <div class="p-4 border-t border-cream/10 space-y-3">
+        <div class="bg-cream/5 rounded-lg p-3.5 border border-cream/10">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[10px] uppercase tracking-widest text-cream/50 font-semibold">Credits</span>
+            <span class="text-accent">${icon.coin}</span>
+          </div>
+          <div class="flex items-baseline gap-1">
+            <span class="serif text-3xl">${userCredits}</span>
+            <span class="text-xs text-cream/50">resterend</span>
+          </div>
+          <button onclick="navigate('settings')" class="mt-2.5 w-full text-[11px] font-medium text-accent hover:text-cream uppercase tracking-wider transition-colors">
+            + Credits kopen
+          </button>
+        </div>
+
+        <div class="flex items-center gap-3 px-2 py-2">
+          <div class="w-8 h-8 bg-accent rounded-full flex items-center justify-center text-cream text-xs font-semibold">
+            ${currentUser.avatar}
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-medium truncate">${currentUser.name}</div>
+            <div class="text-[11px] text-cream/50 truncate">${currentUser.company}</div>
+          </div>
+          <button onclick="navigate('login')" class="text-cream/50 hover:text-cream p-1.5" title="Uitloggen">
+            ${icon.logout}
+          </button>
+        </div>
+      </div>
+    </aside>
+  `;
+}
+
+// ============================================================
+// PAGES
+// ============================================================
+
+function renderLogin() {
+  return `
+    <div class="min-h-screen flex bg-paper">
+      <!-- Left: Form -->
+      <div class="flex-1 flex items-center justify-center p-8">
+        <div class="w-full max-w-md fade-up">
+          <div class="mb-10">${renderLogo('large')}</div>
+
+          <h1 class="serif text-5xl leading-[0.95] mb-3">Welkom terug.</h1>
+          <p class="text-ink/60 mb-10">Log in om door te gaan naar jouw AI Content Engine.</p>
+
+          <div class="space-y-4">
+            <div>
+              <label class="block text-xs uppercase tracking-widest font-semibold text-ink/60 mb-2">E-mail</label>
+              <input type="email" value="lisa@koekjesfabriek.nl" class="w-full px-4 py-3 bg-paper border border-ink/15 rounded-lg text-base" />
+            </div>
+            <div>
+              <label class="block text-xs uppercase tracking-widest font-semibold text-ink/60 mb-2">Wachtwoord</label>
+              <input type="password" value="demopassword" class="w-full px-4 py-3 bg-paper border border-ink/15 rounded-lg text-base" />
+            </div>
+            <button type="button" onclick="doLogin()" class="w-full bg-ink text-cream py-3.5 rounded-lg text-sm font-semibold uppercase tracking-widest hover:bg-accent transition-colors flex items-center justify-center gap-2 group mt-6 cursor-pointer">
+              Inloggen
+              <span class="group-hover:translate-x-1 transition-transform">${icon.arrow}</span>
+            </button>
+            <div class="text-center text-sm text-ink/50 pt-2">
+              <a href="#" onclick="event.preventDefault()" class="hover:text-ink">Wachtwoord vergeten?</a>
+              <span class="mx-2">•</span>
+              <a href="#" onclick="event.preventDefault()" class="hover:text-ink">Account aanmaken</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Visual -->
+      <div class="hidden lg:flex flex-1 bg-ink text-cream p-12 flex-col justify-between relative overflow-hidden noise">
+        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-accent/20 blur-3xl"></div>
+
+        <div class="relative">
+          <div class="text-[10px] uppercase tracking-[0.3em] text-cream/50 font-semibold mb-4">// Since 2010 — Amsterdam</div>
+        </div>
+
+        <div class="relative">
+          <div class="serif text-6xl leading-[0.95] mb-6">
+            <span class="italic">16 jaar</span> SEO-expertise,<br>
+            nu als <span class="text-accent italic">AI-platform</span>.
+          </div>
+          <p class="text-cream/70 text-lg max-w-md leading-relaxed">
+            Van keyword tot kant-en-klaar artikel. Onze bewezen frameworks, nu direct inzetbaar voor jouw team.
+          </p>
+        </div>
+
+        <div class="relative grid grid-cols-3 gap-6 text-sm pt-8 border-t border-cream/10">
+          <div>
+            <div class="serif text-3xl text-accent">16+</div>
+            <div class="text-cream/60 text-xs uppercase tracking-wider mt-1">Jaar expertise</div>
+          </div>
+          <div>
+            <div class="serif text-3xl text-accent">200+</div>
+            <div class="text-cream/60 text-xs uppercase tracking-wider mt-1">Merken geholpen</div>
+          </div>
+          <div>
+            <div class="serif text-3xl text-accent">6</div>
+            <div class="text-cream/60 text-xs uppercase tracking-wider mt-1">Markten actief</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderDashboard() {
+  return `
+    <div class="flex min-h-screen">
+      ${renderSidebar()}
+      <main class="flex-1 bg-paper">
+        <div class="max-w-6xl mx-auto p-10 fade-up">
+          <!-- Header -->
+          <div class="mb-10">
+            <div class="text-xs uppercase tracking-[0.25em] text-ink/50 font-semibold mb-3">// Dashboard</div>
+            <h1 class="serif text-6xl leading-[0.95] mb-2">
+              Goedemorgen, <span class="italic">${currentUser.name.split(' ')[0]}</span>.
+            </h1>
+            <p class="text-ink/60 text-lg">Wat wil je vandaag creëren?</p>
+          </div>
+
+          <!-- Quick Generate -->
+          <div class="bg-ink text-cream rounded-2xl p-8 mb-10 relative overflow-hidden noise">
+            <div class="absolute -right-20 -top-20 w-80 h-80 rounded-full bg-accent/30 blur-3xl"></div>
+            <div class="relative">
+              <div class="text-[10px] uppercase tracking-[0.3em] text-accent font-semibold mb-3">Snelstart</div>
+              <h2 class="serif text-4xl leading-tight mb-6 max-w-xl">
+                Typ je keyword.<br>
+                <span class="italic text-accent">Ontvang complete content.</span>
+              </h2>
+              <div class="flex gap-3 max-w-2xl">
+                <input
+                  id="quick-keyword"
+                  type="text"
+                  placeholder="bijv. zonnepanelen kopen, beste CRM software..."
+                  onkeydown="if(event.key==='Enter'){event.preventDefault();quickGenerate();}"
+                  class="flex-1 px-5 py-4 bg-cream/10 backdrop-blur border border-cream/20 rounded-xl text-cream placeholder-cream/40 text-base"
+                />
+                <button type="button" onclick="quickGenerate()" class="bg-accent hover:bg-cream hover:text-ink text-white px-7 rounded-xl font-semibold text-sm uppercase tracking-wider transition-all flex items-center gap-2 group cursor-pointer">
+                  Genereer
+                  <span class="group-hover:translate-x-1 transition-transform">${icon.arrow}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stats -->
+          <div class="grid grid-cols-4 gap-4 mb-10">
+            ${renderStatCard('Gegenereerd', mockJobs.length, 'Totaal', 'items')}
+            ${renderStatCard('Credits', userCredits, 'Resterend', 'credits')}
+            ${renderStatCard('Woorden', '6.910', 'Totaal output', 'woorden')}
+            ${renderStatCard('Markten', 2, 'Actief gebruikt', 'markten')}
+          </div>
+
+          <!-- Recent -->
+          <div>
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="serif text-3xl">Recente generaties</h2>
+              <button onclick="navigate('history')" class="text-sm text-ink/60 hover:text-accent uppercase tracking-wider font-medium flex items-center gap-1.5 group">
+                Alles bekijken
+                <span class="group-hover:translate-x-1 transition-transform">${icon.arrow}</span>
+              </button>
+            </div>
+
+            <div class="bg-white rounded-xl border border-ink/10 overflow-hidden">
+              ${mockJobs.slice(0, 4).map((job, i) => `
+                <div class="flex items-center gap-6 px-6 py-4 ${i !== 3 ? 'border-b border-ink/5' : ''} hover:bg-paper cursor-pointer transition-colors group" onclick="viewJob('${job.id}')">
+                  <div class="w-10 h-10 bg-paper rounded-lg flex items-center justify-center text-ink/50 group-hover:bg-ink group-hover:text-cream transition-all">
+                    ${icon.sparkles}
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="font-medium truncate">${job.keyword}</div>
+                    <div class="text-xs text-ink/50 mt-0.5">${job.market} · ${job.industry}</div>
+                  </div>
+                  <div class="text-xs">
+                    ${renderTypeBadge(job.type)}
+                  </div>
+                  <div class="text-sm text-ink/50 mono w-24 text-right">${job.date}</div>
+                  <button class="text-ink/30 group-hover:text-accent group-hover:translate-x-1 transition-all">
+                    ${icon.arrow}
+                  </button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  `;
+}
+
+function renderStatCard(label, value, sublabel, unit) {
+  return `
+    <div class="bg-white border border-ink/10 rounded-xl p-5 hover:border-ink/20 transition-colors">
+      <div class="text-[10px] uppercase tracking-widest text-ink/50 font-semibold mb-3">${label}</div>
+      <div class="flex items-baseline gap-1.5">
+        <span class="serif text-4xl">${value}</span>
+        <span class="text-xs text-ink/40">${unit}</span>
+      </div>
+      <div class="text-xs text-ink/40 mt-1">${sublabel}</div>
+    </div>
+  `;
+}
+
+function renderTypeBadge(type) {
+  const map = {
+    briefing: { label: 'Briefing', color: 'bg-sage/15 text-moss' },
+    article: { label: 'Artikel', color: 'bg-accent/15 text-accent' },
+    both: { label: 'Briefing + Artikel', color: 'bg-ink text-cream' },
+  };
+  const t = map[type];
+  return `<span class="${t.color} px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider">${t.label}</span>`;
+}
+
+function renderGenerator() {
+  const creditCost = state.selectedJobType === 'briefing' ? 1 : state.selectedJobType === 'article' ? 2 : 3;
+
+  return `
+    <div class="flex min-h-screen">
+      ${renderSidebar()}
+      <main class="flex-1 bg-paper">
+        <div class="max-w-4xl mx-auto p-10 fade-up">
+          <!-- Header -->
+          <div class="mb-10">
+            <div class="text-xs uppercase tracking-[0.25em] text-ink/50 font-semibold mb-3">// Content Generator</div>
+            <h1 class="serif text-6xl leading-[0.95] mb-3">
+              Van <span class="italic">keyword</span> naar <span class="italic text-accent">content</span>.
+            </h1>
+            <p class="text-ink/60 text-lg max-w-xl">Vul in wat je wilt targeten. Wij leveren een complete SEO-briefing en/of artikel — gebaseerd op 16 jaar DGTLbase frameworks.</p>
+          </div>
+
+          <!-- Form Card -->
+          <div class="bg-white rounded-2xl border border-ink/10 overflow-hidden">
+            <div class="p-10 space-y-6">
+              <!-- Keyword -->
+              <div>
+                <label class="block text-xs uppercase tracking-widest font-semibold text-ink/60 mb-2">
+                  Keyword <span class="text-accent">*</span>
+                </label>
+                <input
+                  id="gen-keyword"
+                  type="text"
+                  value="${state.formData.keyword}"
+                  oninput="state.formData.keyword = this.value"
+                  placeholder="bijv. zonnepanelen kopen, beste CRM software, online marketing bureau"
+                  class="w-full px-5 py-4 bg-paper border border-ink/15 rounded-xl text-lg"
+                />
+              </div>
+
+              <!-- Market + Industry -->
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-xs uppercase tracking-widest font-semibold text-ink/60 mb-2">
+                    Markt <span class="text-accent">*</span>
+                  </label>
+                  <select
+                    id="gen-market"
+                    onchange="state.formData.market = this.value"
+                    class="w-full px-5 py-4 bg-paper border border-ink/15 rounded-xl text-base appearance-none cursor-pointer"
+                  >
+                    ${markets.map(m => `<option value="${m.value}" ${state.formData.market === m.value ? 'selected' : ''}>${m.flag} ${m.label}</option>`).join('')}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs uppercase tracking-widest font-semibold text-ink/60 mb-2">
+                    Industrie <span class="text-accent">*</span>
+                  </label>
+                  <select
+                    id="gen-industry"
+                    onchange="state.formData.industry = this.value"
+                    class="w-full px-5 py-4 bg-paper border border-ink/15 rounded-xl text-base appearance-none cursor-pointer"
+                  >
+                    ${industries.map(i => `<option value="${i}" ${state.formData.industry === i ? 'selected' : ''}>${i}</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+
+              <!-- Context -->
+              <div>
+                <label class="block text-xs uppercase tracking-widest font-semibold text-ink/60 mb-2">
+                  Extra context <span class="text-ink/40 normal-case tracking-normal">— optioneel</span>
+                </label>
+                <textarea
+                  id="gen-context"
+                  oninput="state.formData.context = this.value"
+                  rows="3"
+                  placeholder="bijv. focus op MKB, tone of voice formeel, concurrenten: X en Y, gewenste doelgroep, unieke waarden..."
+                  class="w-full px-5 py-4 bg-paper border border-ink/15 rounded-xl text-base resize-none"
+                >${state.formData.context}</textarea>
+              </div>
+
+              <!-- Output type selector -->
+              <div>
+                <label class="block text-xs uppercase tracking-widest font-semibold text-ink/60 mb-3">
+                  Wat wil je ontvangen?
+                </label>
+                <div class="grid grid-cols-3 gap-3">
+                  ${renderJobTypeOption('briefing', 'SEO Briefing', 'Strategie & structuur', 1, '📋')}
+                  ${renderJobTypeOption('article', 'Compleet Artikel', 'Publicatie-klaar', 2, '✍️')}
+                  ${renderJobTypeOption('both', 'Briefing + Artikel', 'Maximale waarde', 3, '🚀')}
+                </div>
+              </div>
+            </div>
+
+            <!-- Submit -->
+            <div class="border-t border-ink/10 bg-paper px-10 py-6 flex items-center justify-between">
+              <div class="flex items-center gap-3 text-sm">
+                <div class="text-ink/60">Kost:</div>
+                <div class="flex items-center gap-1.5 font-mono font-semibold">
+                  <span class="text-accent">${icon.coin}</span>
+                  <span>${creditCost} credit${creditCost > 1 ? 's' : ''}</span>
+                </div>
+                <div class="text-ink/40">•</div>
+                <div class="text-ink/60">Na: <span class="font-semibold text-ink">${userCredits - creditCost} credits</span></div>
+              </div>
+              <button
+                onclick="startGeneration()"
+                ${userCredits < creditCost ? 'disabled' : ''}
+                class="bg-ink hover:bg-accent text-cream px-8 py-3.5 rounded-xl font-semibold text-sm uppercase tracking-widest transition-all flex items-center gap-2 group disabled:opacity-40 disabled:cursor-not-allowed">
+                ${icon.sparkles}
+                Genereer Content
+                <span class="group-hover:translate-x-1 transition-transform">${icon.arrow}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Frameworks hint -->
+          <div class="mt-6 flex items-center gap-3 text-sm text-ink/50 px-2">
+            <div class="w-1.5 h-1.5 rounded-full bg-accent"></div>
+            <span>Aangedreven door DGTLbase frameworks — verfijnd over 16 jaar in ${mockJobs.length * 40}+ SEO-projecten</span>
+          </div>
+        </div>
+      </main>
+    </div>
+  `;
+}
+
+function renderJobTypeOption(value, title, subtitle, credits, emoji) {
+  const selected = state.selectedJobType === value;
+  return `
+    <button
+      onclick="state.selectedJobType='${value}'; render();"
+      class="text-left p-5 rounded-xl border-2 transition-all ${selected ? 'border-ink bg-ink text-cream' : 'border-ink/10 bg-paper hover:border-ink/30'}">
+      <div class="text-2xl mb-2">${emoji}</div>
+      <div class="font-semibold text-sm mb-0.5">${title}</div>
+      <div class="text-xs ${selected ? 'text-cream/60' : 'text-ink/50'} mb-3">${subtitle}</div>
+      <div class="flex items-center gap-1 text-[11px] font-mono font-semibold ${selected ? 'text-accent' : 'text-ink/60'}">
+        ${icon.coin}
+        ${credits} credit${credits > 1 ? 's' : ''}
+      </div>
+    </button>
+  `;
+}
+
+function renderProgress() {
+  const steps = [
+    { label: 'Zoekintentie analyseren', desc: 'Waarom zoekt iemand hierop?' },
+    { label: 'Content structuur bepalen', desc: 'Welke secties, welke lengte?' },
+    { label: 'SEO-entiteiten toevoegen', desc: 'LSI, related keywords, autoriteit' },
+    { label: state.selectedJobType === 'briefing' ? 'Briefing afronden' : 'Artikel genereren', desc: 'Inhoud schrijven per sectie' },
+  ];
+
+  return `
+    <div class="flex min-h-screen">
+      ${renderSidebar()}
+      <main class="flex-1 bg-paper flex items-center justify-center p-10">
+        <div class="max-w-2xl w-full fade-up">
+          <div class="text-center mb-12">
+            <div class="inline-flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-accent font-semibold mb-4">
+              <span class="w-2 h-2 rounded-full bg-accent pulse-dot"></span>
+              Live generatie
+            </div>
+            <h1 class="serif text-5xl leading-[0.95] mb-3">
+              Onze AI <span class="italic">werkt</span> voor je.
+            </h1>
+            <p class="text-ink/60">Dit duurt meestal 30-60 seconden.</p>
+          </div>
+
+          <div class="bg-white rounded-2xl border border-ink/10 p-8 mb-6">
+            <div class="space-y-2" id="progress-steps">
+              ${steps.map((step, i) => `
+                <div id="step-${i}" class="flex items-center gap-4 p-4 rounded-lg transition-all ${i === 0 ? 'bg-accent/5 border border-accent/20' : 'opacity-30'}">
+                  <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" id="step-icon-${i}">
+                    ${i === 0 ? `<div class="w-5 h-5 border-2 border-accent border-t-transparent rounded-full spin-slow"></div>` : `<div class="w-2.5 h-2.5 rounded-full bg-ink/20"></div>`}
+                  </div>
+                  <div class="flex-1">
+                    <div class="font-semibold text-sm">${step.label}</div>
+                    <div class="text-xs text-ink/50 mt-0.5">${step.desc}</div>
+                  </div>
+                  <div class="text-[10px] mono text-ink/40" id="step-time-${i}">—</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="grid grid-cols-3 gap-3 text-xs">
+            <div class="bg-white border border-ink/10 rounded-lg p-3">
+              <div class="text-[10px] uppercase tracking-widest text-ink/50 mb-1">Keyword</div>
+              <div class="font-medium truncate">${state.formData.keyword}</div>
+            </div>
+            <div class="bg-white border border-ink/10 rounded-lg p-3">
+              <div class="text-[10px] uppercase tracking-widest text-ink/50 mb-1">Markt</div>
+              <div class="font-medium">${markets.find(m => m.value === state.formData.market)?.label || state.formData.market}</div>
+            </div>
+            <div class="bg-white border border-ink/10 rounded-lg p-3">
+              <div class="text-[10px] uppercase tracking-widest text-ink/50 mb-1">Industrie</div>
+              <div class="font-medium">${state.formData.industry}</div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  `;
+}
+
+function renderResult() {
+  const result = state.currentResult;
+  if (!result) return renderDashboard();
+
+  return `
+    <div class="flex min-h-screen">
+      ${renderSidebar()}
+      <main class="flex-1 bg-paper">
+        <div class="max-w-5xl mx-auto p-10 fade-up">
+          <!-- Header -->
+          <div class="flex items-start justify-between mb-8">
+            <div>
+              <button onclick="navigate('generator')" class="text-xs uppercase tracking-widest text-ink/50 hover:text-accent mb-3 font-semibold flex items-center gap-1.5">
+                ← Nieuwe generatie
+              </button>
+              <div class="flex items-center gap-3 mb-2">
+                <span class="inline-flex items-center gap-1.5 bg-sage/15 text-moss px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider">
+                  <span class="w-1.5 h-1.5 rounded-full bg-moss"></span>
+                  Klaar
+                </span>
+                <span class="text-xs mono text-ink/50">Gegenereerd in 42.3s</span>
+              </div>
+              <h1 class="serif text-5xl leading-[0.95] max-w-2xl">${state.formData.keyword}</h1>
+              <p class="text-ink/60 mt-2">${markets.find(m => m.value === state.formData.market)?.label} · ${state.formData.industry}</p>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="toast('Opgeslagen in bibliotheek')" class="flex items-center gap-2 px-4 py-2.5 bg-white border border-ink/15 rounded-lg text-sm font-medium hover:bg-paper hover:border-ink/30">
+                ${icon.save}
+                Opslaan
+              </button>
+              <button onclick="toast('Word-export gestart', '↓')" class="flex items-center gap-2 px-4 py-2.5 bg-white border border-ink/15 rounded-lg text-sm font-medium hover:bg-paper hover:border-ink/30">
+                ${icon.download}
+                Word Export
+              </button>
+              <button onclick="confirmRegenerate()" class="flex items-center gap-2 px-4 py-2.5 bg-ink text-cream rounded-lg text-sm font-medium hover:bg-accent">
+                ${icon.refresh}
+                Regenereer
+              </button>
+            </div>
+          </div>
+
+          <!-- Tabs -->
+          <div class="flex gap-8 border-b border-ink/10 mb-8">
+            <button
+              onclick="state.currentTab='briefing'; render()"
+              class="relative pb-4 text-sm font-semibold uppercase tracking-widest transition-colors ${state.currentTab === 'briefing' ? 'text-ink tab-active' : 'text-ink/40 hover:text-ink/70'}">
+              SEO Briefing
+            </button>
+            <button
+              onclick="state.currentTab='article'; render()"
+              class="relative pb-4 text-sm font-semibold uppercase tracking-widest transition-colors ${state.currentTab === 'article' ? 'text-ink tab-active' : 'text-ink/40 hover:text-ink/70'}">
+              Artikel
+              <span class="ml-2 text-[10px] bg-accent/15 text-accent px-2 py-0.5 rounded-full">${result.article.totalWordCount} w</span>
+            </button>
+          </div>
+
+          <!-- Content -->
+          ${state.currentTab === 'briefing' ? renderBriefing(result.briefing) : renderArticle(result.article)}
+        </div>
+      </main>
+    </div>
+  `;
+}
+
+function renderBriefing(b) {
+  return `
+    <div class="space-y-6">
+      <!-- Search Intent -->
+      <div class="bg-white rounded-2xl border border-ink/10 overflow-hidden">
+        <div class="px-6 py-4 border-b border-ink/10 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="text-accent">${icon.search}</div>
+            <h3 class="serif text-2xl">Zoekintentie</h3>
+          </div>
+          <span class="text-[10px] uppercase tracking-widest font-semibold bg-accent/15 text-accent px-3 py-1 rounded-full">${b.searchIntent.primaryIntent}</span>
+        </div>
+        <div class="p-6">
+          <p class="text-ink/80 leading-relaxed mb-4">${b.searchIntent.intentExplanation}</p>
+          <div class="bg-paper p-4 rounded-lg border-l-2 border-accent">
+            <div class="text-[10px] uppercase tracking-widest font-semibold text-ink/50 mb-1">Gebruikersdoel</div>
+            <div class="text-sm text-ink/80">${b.searchIntent.userGoal}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Target Audience -->
+      <div class="bg-white rounded-2xl border border-ink/10 overflow-hidden">
+        <div class="px-6 py-4 border-b border-ink/10">
+          <h3 class="serif text-2xl">Doelgroep</h3>
+        </div>
+        <div class="p-6 space-y-5">
+          <div>
+            <div class="text-[10px] uppercase tracking-widest font-semibold text-ink/50 mb-2">Primaire Persona</div>
+            <p class="text-ink/80 leading-relaxed">${b.targetAudience.primaryPersona}</p>
+          </div>
+          <div class="grid grid-cols-2 gap-6">
+            <div>
+              <div class="text-[10px] uppercase tracking-widest font-semibold text-ink/50 mb-3">Pijnpunten</div>
+              <ul class="space-y-2">
+                ${b.targetAudience.painPoints.map(p => `
+                  <li class="flex items-start gap-2.5 text-sm">
+                    <span class="w-1.5 h-1.5 rounded-full bg-accent mt-2 flex-shrink-0"></span>
+                    <span class="text-ink/80">${p}</span>
+                  </li>
+                `).join('')}
+              </ul>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-widest font-semibold text-ink/50 mb-3">Zoek triggers</div>
+              <ul class="space-y-2">
+                ${b.targetAudience.searchTriggers.map(p => `
+                  <li class="flex items-start gap-2.5 text-sm">
+                    <span class="w-1.5 h-1.5 rounded-full bg-sage mt-2 flex-shrink-0"></span>
+                    <span class="text-ink/80">${p}</span>
+                  </li>
+                `).join('')}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Content Strategy -->
+      <div class="bg-ink text-cream rounded-2xl overflow-hidden noise relative">
+        <div class="absolute -right-20 -bottom-20 w-80 h-80 rounded-full bg-accent/20 blur-3xl"></div>
+        <div class="relative p-6">
+          <div class="text-[10px] uppercase tracking-[0.3em] text-accent font-semibold mb-3">Content Strategie</div>
+          <div class="serif text-3xl mb-5 italic">${b.contentStrategy.uniqueValueProposition}</div>
+          <div class="grid grid-cols-3 gap-6 pt-5 border-t border-cream/10">
+            <div>
+              <div class="text-[10px] uppercase tracking-widest text-cream/50 font-semibold mb-1">Format</div>
+              <div class="text-sm">${b.contentStrategy.recommendedFormat}</div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-widest text-cream/50 font-semibold mb-1">Omvang</div>
+              <div class="serif text-3xl italic text-accent">${b.contentStrategy.estimatedWordCount}</div>
+              <div class="text-xs text-cream/50">woorden</div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-widest text-cream/50 font-semibold mb-1">Angle</div>
+              <div class="text-sm">${b.contentStrategy.contentAngle}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Content Structure -->
+      <div class="bg-white rounded-2xl border border-ink/10 overflow-hidden">
+        <div class="px-6 py-4 border-b border-ink/10">
+          <h3 class="serif text-2xl">Content Structuur</h3>
+        </div>
+        <div class="p-6 space-y-4">
+          <div class="bg-paper p-4 rounded-lg border border-ink/10">
+            <div class="text-[10px] uppercase tracking-widest font-semibold text-ink/50 mb-1">Meta Title</div>
+            <div class="font-medium mb-0.5">${b.contentStructure.metaTitle}</div>
+            <div class="text-[10px] text-ink/40 mono">${b.contentStructure.metaTitle.length} karakters</div>
+          </div>
+          <div class="bg-paper p-4 rounded-lg border border-ink/10">
+            <div class="text-[10px] uppercase tracking-widest font-semibold text-ink/50 mb-1">Meta Description</div>
+            <div class="text-sm mb-0.5">${b.contentStructure.metaDescription}</div>
+            <div class="text-[10px] text-ink/40 mono">${b.contentStructure.metaDescription.length} karakters</div>
+          </div>
+          <div class="bg-paper p-4 rounded-lg border border-ink/10">
+            <div class="text-[10px] uppercase tracking-widest font-semibold text-ink/50 mb-1">H1</div>
+            <div class="serif text-2xl">${b.contentStructure.h1}</div>
+          </div>
+
+          <div class="pt-2">
+            <div class="text-[10px] uppercase tracking-widest font-semibold text-ink/50 mb-3">Secties (${b.contentStructure.sections.length})</div>
+            <div class="space-y-2">
+              ${b.contentStructure.sections.map((s, i) => `
+                <div class="bg-paper rounded-lg border border-ink/10 overflow-hidden">
+                  <div class="px-4 py-3 flex items-center justify-between">
+                    <div class="flex items-center gap-3 flex-1">
+                      <span class="mono text-xs text-ink/40 w-6">${String(i+1).padStart(2, '0')}</span>
+                      <div class="flex-1">
+                        <div class="font-medium text-sm">${s.heading}</div>
+                        <div class="text-xs text-ink/50 mt-0.5">${s.purpose}</div>
+                      </div>
+                    </div>
+                    <div class="mono text-xs text-ink/50">${s.wordCount}w</div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SEO Entities -->
+      <div class="bg-white rounded-2xl border border-ink/10 overflow-hidden">
+        <div class="px-6 py-4 border-b border-ink/10">
+          <h3 class="serif text-2xl">SEO Entiteiten</h3>
+        </div>
+        <div class="p-6 space-y-5">
+          <div>
+            <div class="text-[10px] uppercase tracking-widest font-semibold text-ink/50 mb-2">Primary keyword</div>
+            <span class="inline-block bg-ink text-cream px-4 py-2 rounded-lg font-mono text-sm">${b.seoEntities.primaryKeyword}</span>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-widest font-semibold text-ink/50 mb-2">Related keywords</div>
+            <div class="flex flex-wrap gap-2">
+              ${b.seoEntities.relatedKeywords.map(k => `<span class="bg-accent/10 text-accent px-3 py-1.5 rounded-full text-xs font-medium">${k}</span>`).join('')}
+            </div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-widest font-semibold text-ink/50 mb-2">LSI keywords</div>
+            <div class="flex flex-wrap gap-2">
+              ${b.seoEntities.lsiKeywords.map(k => `<span class="bg-sage/15 text-moss px-3 py-1.5 rounded-full text-xs font-medium">${k}</span>`).join('')}
+            </div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-widest font-semibold text-ink/50 mb-2">Entiteiten</div>
+            <div class="flex flex-wrap gap-2">
+              ${b.seoEntities.entities.map(k => `<span class="bg-paper border border-ink/15 px-3 py-1.5 rounded-full text-xs font-medium">${k}</span>`).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Competitive -->
+      <div class="grid grid-cols-2 gap-4">
+        <div class="bg-white rounded-2xl border border-ink/10 p-6">
+          <div class="text-[10px] uppercase tracking-widest font-semibold text-accent mb-3">Content Gaps</div>
+          <ul class="space-y-3">
+            ${b.competitiveInsights.contentGaps.map(g => `
+              <li class="flex items-start gap-2.5 text-sm">
+                <span class="mono text-accent font-bold text-xs mt-0.5">→</span>
+                <span class="text-ink/80">${g}</span>
+              </li>
+            `).join('')}
+          </ul>
+        </div>
+        <div class="bg-white rounded-2xl border border-ink/10 p-6">
+          <div class="text-[10px] uppercase tracking-widest font-semibold text-moss mb-3">Differentiators</div>
+          <ul class="space-y-3">
+            ${b.competitiveInsights.differentiators.map(d => `
+              <li class="flex items-start gap-2.5 text-sm">
+                <span class="mono text-moss font-bold text-xs mt-0.5">+</span>
+                <span class="text-ink/80">${d}</span>
+              </li>
+            `).join('')}
+          </ul>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderArticle(a) {
+  return `
+    <div class="bg-white rounded-2xl border border-ink/10 overflow-hidden">
+      <!-- Meta panel -->
+      <div class="bg-paper border-b border-ink/10 p-6 grid grid-cols-2 gap-6">
+        <div>
+          <div class="text-[10px] uppercase tracking-widest font-semibold text-ink/50 mb-1.5">Meta Title</div>
+          <div contenteditable="true" class="font-medium text-sm p-2 -m-2 rounded">${a.metaTitle}</div>
+        </div>
+        <div>
+          <div class="text-[10px] uppercase tracking-widest font-semibold text-ink/50 mb-1.5">Meta Description</div>
+          <div contenteditable="true" class="text-sm p-2 -m-2 rounded">${a.metaDescription}</div>
+        </div>
+      </div>
+
+      <!-- Article body -->
+      <div class="p-10 max-w-3xl mx-auto">
+        <div class="text-[10px] uppercase tracking-[0.25em] text-ink/40 font-semibold mb-4">// Editable — klik om te bewerken</div>
+
+        <h1 contenteditable="true" class="serif text-5xl leading-[1.05] mb-8 p-2 -mx-2 rounded">${a.title}</h1>
+
+        <div contenteditable="true" class="text-lg leading-relaxed text-ink/85 mb-10 p-2 -mx-2 rounded">${a.introduction}</div>
+
+        ${a.sections.map(s => `
+          <div class="mb-10">
+            <h2 contenteditable="true" class="serif text-3xl mb-4 p-2 -mx-2 rounded">${s.heading}</h2>
+            <div contenteditable="true" class="leading-relaxed text-ink/85 p-2 -mx-2 rounded whitespace-pre-line">${s.content}</div>
+            <div class="mt-2 text-[10px] mono text-ink/40 pl-2">~${s.wordCount} woorden</div>
+          </div>
+        `).join('')}
+
+        <div class="mb-10">
+          <h2 class="serif text-3xl mb-4">Conclusie</h2>
+          <div contenteditable="true" class="leading-relaxed text-ink/85 p-2 -mx-2 rounded">${a.conclusion}</div>
+        </div>
+
+        <div class="bg-ink text-cream rounded-xl p-6 noise relative overflow-hidden">
+          <div class="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-accent/20 blur-2xl"></div>
+          <div class="relative">
+            <div class="text-[10px] uppercase tracking-[0.25em] text-accent font-semibold mb-2">Call-to-action</div>
+            <div contenteditable="true" class="text-lg p-2 -m-2 rounded">${a.callToAction}</div>
+          </div>
+        </div>
+
+        <div class="mt-10 pt-6 border-t border-ink/10 flex items-center justify-between text-xs text-ink/50">
+          <div class="mono">Totaal: ${a.totalWordCount} woorden</div>
+          <button onclick="toast('Artikel opgeslagen')" class="text-accent font-semibold uppercase tracking-widest">
+            Wijzigingen opslaan
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderHistory() {
+  return `
+    <div class="flex min-h-screen">
+      ${renderSidebar()}
+      <main class="flex-1 bg-paper">
+        <div class="max-w-6xl mx-auto p-10 fade-up">
+          <div class="mb-10">
+            <div class="text-xs uppercase tracking-[0.25em] text-ink/50 font-semibold mb-3">// Archief</div>
+            <h1 class="serif text-6xl leading-[0.95] mb-3">
+              <span class="italic">Alle</span> generaties.
+            </h1>
+            <p class="text-ink/60 text-lg">Doorzoek en hergebruik eerder gegenereerde content.</p>
+          </div>
+
+          <div class="bg-white rounded-xl border border-ink/10 p-3 mb-6 flex gap-3">
+            <div class="flex-1 flex items-center gap-3 px-4 py-2 bg-paper rounded-lg">
+              <span class="text-ink/40">${icon.search}</span>
+              <input type="text" placeholder="Zoek op keyword..." class="flex-1 bg-transparent border-0 text-sm" />
+            </div>
+            <select class="px-4 py-2 bg-paper rounded-lg border-0 text-sm cursor-pointer">
+              <option>Alle types</option>
+              <option>Briefing</option>
+              <option>Artikel</option>
+              <option>Beide</option>
+            </select>
+            <select class="px-4 py-2 bg-paper rounded-lg border-0 text-sm cursor-pointer">
+              <option>Alle markten</option>
+              <option>Nederland</option>
+              <option>Verenigd Koninkrijk</option>
+            </select>
+          </div>
+
+          <div class="bg-white rounded-xl border border-ink/10 overflow-hidden">
+            <div class="grid grid-cols-[1fr_140px_140px_120px_100px_120px_60px] gap-4 px-6 py-3 bg-paper border-b border-ink/10 text-[10px] uppercase tracking-widest text-ink/50 font-semibold">
+              <div>Keyword</div>
+              <div>Markt</div>
+              <div>Industrie</div>
+              <div>Type</div>
+              <div>Woorden</div>
+              <div>Datum</div>
+              <div></div>
+            </div>
+            ${mockJobs.map((job, i) => `
+              <div class="grid grid-cols-[1fr_140px_140px_120px_100px_120px_60px] gap-4 px-6 py-4 ${i !== mockJobs.length - 1 ? 'border-b border-ink/5' : ''} hover:bg-paper cursor-pointer group transition-colors" onclick="viewJob('${job.id}')">
+                <div class="flex items-center gap-3 min-w-0">
+                  <div class="w-8 h-8 bg-paper group-hover:bg-ink group-hover:text-cream rounded-lg flex items-center justify-center text-ink/50 transition-all flex-shrink-0">
+                    ${icon.sparkles}
+                  </div>
+                  <div class="font-medium truncate">${job.keyword}</div>
+                </div>
+                <div class="text-sm text-ink/70">${job.market}</div>
+                <div class="text-sm text-ink/70">${job.industry}</div>
+                <div>${renderTypeBadge(job.type)}</div>
+                <div class="text-sm mono text-ink/60">${job.wordCount || '—'}</div>
+                <div class="text-sm mono text-ink/60">${job.date}</div>
+                <div class="flex items-center justify-end">
+                  <span class="text-ink/30 group-hover:text-accent group-hover:translate-x-1 transition-all">${icon.arrow}</span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+
+          <div class="flex items-center justify-between mt-6 text-sm text-ink/50">
+            <div>${mockJobs.length} resultaten</div>
+            <div class="flex gap-1">
+              <button class="px-3 py-1.5 hover:bg-white rounded">Vorige</button>
+              <button class="px-3 py-1.5 bg-ink text-cream rounded font-medium">1</button>
+              <button class="px-3 py-1.5 hover:bg-white rounded">Volgende</button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  `;
+}
+
+function renderSettings() {
+  return `
+    <div class="flex min-h-screen">
+      ${renderSidebar()}
+      <main class="flex-1 bg-paper">
+        <div class="max-w-4xl mx-auto p-10 fade-up">
+          <div class="mb-10">
+            <div class="text-xs uppercase tracking-[0.25em] text-ink/50 font-semibold mb-3">// Instellingen</div>
+            <h1 class="serif text-6xl leading-[0.95]">Jouw <span class="italic">account</span>.</h1>
+          </div>
+
+          <!-- Credits packages -->
+          <div class="mb-12">
+            <h2 class="serif text-3xl mb-2">Credits kopen</h2>
+            <p class="text-ink/60 mb-6">1 briefing = 1 credit. 1 artikel = 2 credits. Bundel = 3 credits.</p>
+
+            <div class="grid grid-cols-3 gap-4">
+              ${renderCreditPackage('Starter', 10, 29, false)}
+              ${renderCreditPackage('Professional', 50, 99, true)}
+              ${renderCreditPackage('Agency', 200, 299, false)}
+            </div>
+          </div>
+
+          <!-- Profile -->
+          <div class="bg-white rounded-2xl border border-ink/10 p-8 mb-6">
+            <h2 class="serif text-2xl mb-6">Profiel</h2>
+            <div class="grid grid-cols-2 gap-5">
+              <div>
+                <label class="block text-xs uppercase tracking-widest font-semibold text-ink/60 mb-2">Volledige naam</label>
+                <input type="text" value="${currentUser.name}" class="w-full px-4 py-3 bg-paper border border-ink/15 rounded-lg" />
+              </div>
+              <div>
+                <label class="block text-xs uppercase tracking-widest font-semibold text-ink/60 mb-2">Bedrijf</label>
+                <input type="text" value="${currentUser.company}" class="w-full px-4 py-3 bg-paper border border-ink/15 rounded-lg" />
+              </div>
+              <div class="col-span-2">
+                <label class="block text-xs uppercase tracking-widest font-semibold text-ink/60 mb-2">E-mail</label>
+                <input type="email" value="${currentUser.email}" disabled class="w-full px-4 py-3 bg-paper border border-ink/15 rounded-lg opacity-60" />
+              </div>
+            </div>
+            <div class="mt-6 flex justify-end">
+              <button onclick="toast('Profiel opgeslagen')" class="bg-ink text-cream px-6 py-2.5 rounded-lg text-sm font-semibold uppercase tracking-widest hover:bg-accent transition-colors">
+                Opslaan
+              </button>
+            </div>
+          </div>
+
+          <!-- Transactions -->
+          <div class="bg-white rounded-2xl border border-ink/10 overflow-hidden">
+            <div class="px-8 py-5 border-b border-ink/10">
+              <h2 class="serif text-2xl">Credit transacties</h2>
+            </div>
+            <div>
+              ${[
+                { type: 'usage', amount: -3, desc: 'zonnepanelen kopen — Briefing + Artikel', date: '14 apr 2026' },
+                { type: 'usage', amount: -1, desc: 'beste CRM software MKB — Briefing', date: '12 apr 2026' },
+                { type: 'usage', amount: -2, desc: 'online marketing bureau Amsterdam — Artikel', date: '10 apr 2026' },
+                { type: 'purchase', amount: 10, desc: 'Starter pakket aangekocht', date: '1 apr 2026' },
+                { type: 'bonus', amount: 5, desc: 'Welkomstbonus nieuwe gebruiker', date: '1 apr 2026' },
+              ].map((t, i, arr) => `
+                <div class="flex items-center gap-4 px-8 py-4 ${i !== arr.length - 1 ? 'border-b border-ink/5' : ''}">
+                  <div class="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold ${
+                    t.amount > 0 ? 'bg-moss/15 text-moss' : 'bg-accent/15 text-accent'
+                  }">${t.amount > 0 ? '+' : ''}${t.amount}</div>
+                  <div class="flex-1">
+                    <div class="font-medium text-sm">${t.desc}</div>
+                    <div class="text-xs text-ink/50 mt-0.5 capitalize">${t.type}</div>
+                  </div>
+                  <div class="text-sm mono text-ink/50">${t.date}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  `;
+}
+
+function renderCreditPackage(name, credits, price, featured) {
+  return `
+    <div class="${featured ? 'bg-ink text-cream border-2 border-accent' : 'bg-white border border-ink/10'} rounded-2xl p-6 relative">
+      ${featured ? `
+        <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-accent text-white px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-widest">
+          Meest gekozen
+        </div>
+      ` : ''}
+      <div class="text-[10px] uppercase tracking-widest ${featured ? 'text-accent' : 'text-ink/50'} font-semibold mb-3">${name}</div>
+      <div class="flex items-baseline gap-1 mb-1">
+        <span class="serif text-5xl">${credits}</span>
+        <span class="text-xs ${featured ? 'text-cream/60' : 'text-ink/50'} uppercase tracking-wider">credits</span>
+      </div>
+      <div class="text-sm ${featured ? 'text-cream/70' : 'text-ink/60'} mb-6">€${price} — eenmalig</div>
+      <div class="text-xs ${featured ? 'text-cream/60' : 'text-ink/60'} mb-6 space-y-1.5">
+        <div class="flex items-center gap-2">
+          <span class="${featured ? 'text-accent' : 'text-moss'}">${icon.check}</span>
+          <span>Tot ${Math.floor(credits/3)} volledige sets</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="${featured ? 'text-accent' : 'text-moss'}">${icon.check}</span>
+          <span>Geen vervaldatum</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="${featured ? 'text-accent' : 'text-moss'}">${icon.check}</span>
+          <span>Word exports inbegrepen</span>
+        </div>
+      </div>
+      <button onclick="toast('Checkout wordt binnenkort gelanceerd')" class="w-full ${featured ? 'bg-accent text-white hover:bg-cream hover:text-ink' : 'bg-ink text-cream hover:bg-accent'} py-3 rounded-lg text-sm font-semibold uppercase tracking-widest transition-all">
+        Kopen
+      </button>
+    </div>
+  `;
+}
+
+// ============================================================
+// MAIN RENDER
+// ============================================================
+function render() {
+  const app = document.getElementById('app');
+  switch (state.page) {
+    case 'login': app.innerHTML = renderLogin(); break;
+    case 'dashboard': app.innerHTML = renderDashboard(); break;
+    case 'generator': app.innerHTML = renderGenerator(); break;
+    case 'progress': app.innerHTML = renderProgress(); runProgressAnimation(); break;
+    case 'result': app.innerHTML = renderResult(); break;
+    case 'history': app.innerHTML = renderHistory(); break;
+    case 'settings': app.innerHTML = renderSettings(); break;
+    default: app.innerHTML = renderDashboard();
+  }
+  window.scrollTo(0, 0);
+}
+
+// ============================================================
+// ACTIONS
+// ============================================================
+function navigate(page) {
+  setState({ page });
+}
+
+function doLogin() {
+  navigate('dashboard');
+  toast('Ingelogd als ' + currentUser.name);
+}
+
+function quickGenerate() {
+  const input = document.getElementById('quick-keyword');
+  const keyword = input ? input.value : '';
+  if (!keyword.trim()) {
+    toast('Vul een keyword in', '!');
+    return;
+  }
+  state.formData.keyword = keyword;
+  state.page = 'generator';
+  render();
+}
+
+function startGeneration() {
+  const keyword = document.getElementById('gen-keyword')?.value || '';
+  const market = document.getElementById('gen-market')?.value || 'NL';
+  const industry = document.getElementById('gen-industry')?.value || 'E-commerce';
+  const context = document.getElementById('gen-context')?.value || '';
+
+  if (!keyword.trim()) {
+    toast('Vul een keyword in', '!');
+    return;
+  }
+
+  state.formData = { keyword, market, industry, context };
+  const cost = state.selectedJobType === 'briefing' ? 1 : state.selectedJobType === 'article' ? 2 : 3;
+  userCredits -= cost;
+
+  setState({ page: 'progress' });
+}
+
+function runProgressAnimation() {
+  const steps = [0, 1, 2, 3];
+  const timings = [1200, 2300, 3400, 4600];
+
+  steps.forEach((step, i) => {
+    if (i === 0) return; // Already active
+    setTimeout(() => {
+      const prevStep = document.getElementById(`step-${i - 1}`);
+      const prevIcon = document.getElementById(`step-icon-${i - 1}`);
+      const prevTime = document.getElementById(`step-time-${i - 1}`);
+      const curStep = document.getElementById(`step-${i}`);
+      const curIcon = document.getElementById(`step-icon-${i}`);
+
+      if (prevStep) {
+        prevStep.classList.remove('bg-accent/5', 'border-accent/20');
+        prevStep.classList.add('opacity-90');
+      }
+      if (prevIcon) {
+        prevIcon.innerHTML = `<div class="check-in w-8 h-8 rounded-full bg-moss text-white flex items-center justify-center">${icon.check}</div>`;
+      }
+      if (prevTime) {
+        prevTime.textContent = `${(timings[i-1] / 1000).toFixed(1)}s`;
+      }
+      if (curStep) {
+        curStep.classList.remove('opacity-30');
+        curStep.classList.add('bg-accent/5', 'border', 'border-accent/20');
+      }
+      if (curIcon) {
+        curIcon.innerHTML = `<div class="w-5 h-5 border-2 border-accent border-t-transparent rounded-full spin-slow"></div>`;
+      }
+    }, timings[i - 1]);
+  });
+
+  // Final completion
+  setTimeout(() => {
+    const finalIdx = 3;
+    const finalIcon = document.getElementById(`step-icon-${finalIdx}`);
+    const finalTime = document.getElementById(`step-time-${finalIdx}`);
+    const finalStep = document.getElementById(`step-${finalIdx}`);
+
+    if (finalIcon) {
+      finalIcon.innerHTML = `<div class="check-in w-8 h-8 rounded-full bg-moss text-white flex items-center justify-center">${icon.check}</div>`;
+    }
+    if (finalTime) finalTime.textContent = '5.8s';
+    if (finalStep) {
+      finalStep.classList.remove('bg-accent/5', 'border-accent/20');
+    }
+
+    setTimeout(() => {
+      state.currentResult = generateMockContent(state.formData.keyword, state.formData.market, state.formData.industry);
+      state.currentTab = 'briefing';
+      setState({ page: 'result' });
+      toast('Generatie voltooid!');
+    }, 700);
+  }, 5800);
+}
+
+function viewJob(jobId) {
+  const job = mockJobs.find(j => j.id === jobId);
+  if (!job) return;
+  state.formData = {
+    keyword: job.keyword,
+    market: markets.find(m => m.label === job.market)?.value || 'NL',
+    industry: job.industry,
+    context: '',
+  };
+  state.currentResult = generateMockContent(job.keyword, job.market, job.industry);
+  state.currentTab = 'briefing';
+  setState({ page: 'result' });
+}
+
+function confirmRegenerate() {
+  if (confirm('Opnieuw genereren kost weer credits. Doorgaan?')) {
+    userCredits -= 3;
+    setState({ page: 'progress' });
+  }
+}
+
+// ============================================================
+// INIT
+// ============================================================
+render();
+</script>
+</body>
+</html>
